@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>SVN-LAB Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0a0a0a; color: #e0e0e0; font-family: 'Inter', sans-serif; }
+    .input-dark { background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 8px; border-radius: 6px; width: 100%; }
+    .input-dark:focus { border-color: #ff3e00; outline: none; }
+    .btn-primary { background: #ff3e00; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; }
+    .btn-primary:hover { background: #e03600; }
+    .btn-secondary { background: #333; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; }
+  </style>
+</head>
+<body class="p-4 md:p-8 max-w-4xl mx-auto">
+
+  <!-- Экран входа -->
+  <div id="login-screen" class="text-center mt-20">
+    <h1 class="text-3xl font-bold mb-6 text-[#ff3e00]">SVN-LAB ADMIN</h1>
+    <p class="mb-4 text-gray-400">Введите GitHub Personal Access Token для доступа</p>
+    <input type="password" id="token-input" class="input-dark max-w-md mb-4 text-center" placeholder="github_pat_...">
+    <br>
+    <button onclick="saveToken()" class="btn-primary">Войти</button>
+  </div>
+
+  <!-- Экран панели -->
+  <div id="admin-screen" class="hidden">
+    <div class="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
+      <h1 class="text-2xl font-bold text-[#ff3e00]">Управление проектами</h1>
+      <button onclick="logout()" class="text-sm text-gray-500 hover:text-white">Выйти</button>
+    </div>
+
+    <div id="loading" class="text-center py-10 text-gray-400">Загрузка данных из GitHub...</div>
+    
+    <div id="projects-container" class="space-y-8"></div>
+
+    <div class="mt-8 flex gap-4">
+      <button onclick="addNewProject()" class="btn-secondary">+ Добавить новый проект</button>
+      <button onclick="saveAllChanges()" class="btn-primary text-lg px-8">💾 СОХРАНИТЬ ВСЁ В GITHUB</button>
+    </div>
+    <p id="status-msg" class="mt-4 text-center text-sm"></p>
+  </div>
+
+  <script>
+    const REPO = 'se7ka-gh/svn-lab-site-qwen';
+    const BRANCH = 'main';
+    let token = localStorage.getItem('svn_token');
+    let projectsData = [];
+
+    // Инициализация
+    if (token) {
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('admin-screen').classList.remove('hidden');
+      loadProjects();
+    }
+
+    function saveToken() {
+      const input = document.getElementById('token-input').value.trim();
+      if (input.startsWith('github_pat_')) {
+        localStorage.setItem('svn_token', input);
+        token = input;
+        location.reload();
+      } else {
+        alert('Неверный формат токена. Он должен начинаться с github_pat_');
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('svn_token');
+      location.reload();
+    }
+
+    async function loadProjects() {
+      try {
+        const res = await fetch(`https://api.github.com/repos/${REPO}/contents/data/projects.json?ref=${BRANCH}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (!res.ok) throw new Error('Не удалось загрузить projects.json');
+        const data = await res.json();
+        // Декодируем base64 контент из GitHub
+        const content = atob(data.content);
+        projectsData = JSON.parse(content);
+        renderProjects();
+      } catch (err) {
+        document.getElementById('loading').innerText = 'Ошибка: ' + err.message + '. Проверьте токен и имя репозитория.';
+        console.error(err);
+      }
+    }
+
+    function renderProjects() {
+      document.getElementById('loading').classList.add('hidden');
+      const container = document.getElementById('projects-container');
+      container.innerHTML = '';
+
+      projectsData.forEach((proj, index) => {
+        const div = document.createElement('div');
+        div.className = 'bg-[#131519] p-6 rounded-lg border border-gray-800';
+        div.innerHTML = `
+          <div class="flex justify-between mb-4">
+            <h3 class="text-xl font-bold text-white">${proj.name || 'Новый проект'}</h3>
+            <button onclick="removeProject(${index})" class="text-red-500 text-sm hover:underline">Удалить</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs text-gray-500">Slug (URL)</label>
+              <input class="input-dark" data-idx="${index}" data-field="slug" value="${proj.slug || ''}">
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Название</label>
+              <input class="input-dark" data-idx="${index}" data-field="name" value="${proj.name || ''}">
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Статус</label>
+              <select class="input-dark" data-idx="${index}" data-field="status">
+                <option value="ready" ${proj.status === 'ready' ? 'selected' : ''}>Готов</option>
+                <option value="forsale" ${proj.status === 'forsale' ? 'selected' : ''}>В продаже</option>
+                <option value="inprogress" ${proj.status === 'inprogress' ? 'selected' : ''}>В работе</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Цена (₽)</label>
+              <input type="number" class="input-dark" data-idx="${index}" data-field="price" value="${proj.price || ''}">
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Прогресс (%)</label>
+              <input type="number" class="input-dark" data-idx="${index}" data-field="progress" value="${proj.progress || ''}">
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Часы работы</label>
+              <input type="number" class="input-dark" data-idx="${index}" data-field="hours" value="${proj.hours || ''}">
+            </div>
+            <div class="md:col-span-2">
+              <label class="text-xs text-gray-500">Краткое описание</label>
+              <textarea class="input-dark" rows="2" data-idx="${index}" data-field="description">${proj.description || ''}</textarea>
+            </div>
+            <div class="md:col-span-2">
+              <label class="text-xs text-gray-500">Материалы (через запятую)</label>
+              <input class="input-dark" data-idx="${index}" data-field="materials_str" value="${Array.isArray(proj.materials) ? proj.materials.join(', ') : ''}">
+            </div>
+            <div class="md:col-span-2">
+              <label class="text-xs text-gray-500">Обложка (URL или загрузить новую ниже)</label>
+              <input class="input-dark mb-2" data-idx="${index}" data-field="cover" value="${proj.cover || ''}">
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, ${index}, 'cover')" class="text-sm text-gray-400">
+            </div>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function addNewProject() {
+      projectsData.push({
+        slug: "new-project",
+        name: "Новый проект",
+        status: "inprogress",
+        price: null,
+        progress: 0,
+        description: "Описание",
+        materials: [],
+        hours: 0,
+        cover: "",
+        gallery: [],
+        createdAt: new Date().toISOString(),
+        featured: false,
+        tags: []
+      });
+      renderProjects();
+    }
+
+    function removeProject(index) {
+      if(confirm('Удалить этот проект?')) {
+        projectsData.splice(index, 1);
+        renderProjects();
+      }
+    }
+
+    async function handleImageUpload(input, index, field) {
+      const file = input.files[0];
+      if (!file) return;
+      
+      const statusMsg = document.getElementById('status-msg');
+      statusMsg.innerText = `Загрузка ${file.name} в GitHub...`;
+      statusMsg.className = "mt-4 text-center text-sm text-yellow-500";
+
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const base64Content = e.target.result.split(',')[1];
+        const fileName = `${projectsData[index].slug || 'img'}-${Date.now()}.${file.name.split('.').pop()}`;
+        const path = `images/projects/${fileName}`;
+
+        try {
+          // Проверяем, существует ли файл, чтобы получить его SHA для обновления
+          let sha = null;
+          try {
+            const checkRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`, {
+              headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+            });
+            if (checkRes.ok) {
+              const checkData = await checkRes.json();
+              sha = checkData.sha;
+            }
+          } catch(e) {}
+
+          // Загружаем файл
+          const payload = {
+            message: `Admin: upload ${fileName}`,
+            content: base64Content,
+            branch: BRANCH
+          };
+          if (sha) payload.sha = sha;
+
+          const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/vnd.github.v3+json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (res.ok) {
+            // Обновляем поле в данных
+            const updatedData = { ...projectsData[index] };
+            updatedData[field] = `/images/projects/${fileName}`;
+            projectsData[index] = updatedData;
+            renderProjects(); // Перерисовать, чтобы показать новый URL
+            statusMsg.innerText = 'Фото успешно загружено в GitHub!';
+            statusMsg.className = "mt-4 text-center text-sm text-green-500";
+          } else {
+            throw new Error(await res.text());
+          }
+        } catch (err) {
+          statusMsg.innerText = 'Ошибка загрузки фото: ' + err.message;
+          statusMsg.className = "mt-4 text-center text-sm text-red-500";
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function saveAllChanges() {
+      const statusMsg = document.getElementById('status-msg');
+      statusMsg.innerText = 'Сохранение изменений в GitHub...';
+      statusMsg.className = "mt-4 text-center text-sm text-yellow-500";
+
+      // Собираем данные из инпутов
+      document.querySelectorAll('[data-field]').forEach(input => {
+        const idx = input.dataset.idx;
+        const field = input.dataset.field;
+        let val = input.value;
+
+        if (field === 'price' || field === 'hours' || field === 'progress') {
+          val = val === '' ? null : Number(val);
+        }
+        
+        if (field === 'materials_str') {
+          projectsData[idx].materials = val.split(',').map(s => s.trim()).filter(s => s);
+        } else {
+          projectsData[idx][field] = val;
+        }
+      });
+
+      try {
+        // Получаем текущий SHA файла projects.json
+        const getRes = await fetch(`https://api.github.com/repos/${REPO}/contents/data/projects.json?ref=${BRANCH}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        const getData = await getRes.json();
+
+        // Отправляем обновлённый JSON
+        const content = btoa(unescape(encodeURIComponent(JSON.stringify(projectsData, null, 2))));
+        const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/data/projects.json`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: 'Admin panel: update projects data',
+            content: content,
+            sha: getData.sha,
+            branch: BRANCH
+          })
+        });
+
+        if (putRes.ok) {
+          statusMsg.innerText = '✅ Успешно сохранено! Сайт обновится через 1-2 минуты.';
+          statusMsg.className = "mt-4 text-center text-sm text-green-500 font-bold";
+        } else {
+          throw new Error(await putRes.text());
+        }
+      } catch (err) {
+        statusMsg.innerText = '❌ Ошибка сохранения: ' + err.message;
+        statusMsg.className = "mt-4 text-center text-sm text-red-500";
+      }
+    }
+  </script>
+</body>
+</html>
