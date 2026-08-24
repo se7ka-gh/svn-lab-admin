@@ -80,9 +80,16 @@
         });
         if (!res.ok) throw new Error('Не удалось загрузить projects.json');
         const data = await res.json();
-        // Декодируем base64 контент из GitHub
-        const content = atob(data.content);
+        
+        // ИСПРАВЛЕНО: правильное декодирование UTF-8 из base64
+        const binaryString = atob(data.content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const content = new TextDecoder('utf-8').decode(bytes);
         projectsData = JSON.parse(content);
+        
         renderProjects();
       } catch (err) {
         document.getElementById('loading').innerText = 'Ошибка: ' + err.message + '. Проверьте токен и имя репозитория.';
@@ -192,7 +199,6 @@
         const path = `images/projects/${fileName}`;
 
         try {
-          // Проверяем, существует ли файл, чтобы получить его SHA для обновления
           let sha = null;
           try {
             const checkRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`, {
@@ -204,7 +210,6 @@
             }
           } catch(e) {}
 
-          // Загружаем файл
           const payload = {
             message: `Admin: upload ${fileName}`,
             content: base64Content,
@@ -223,11 +228,10 @@
           });
 
           if (res.ok) {
-            // Обновляем поле в данных
             const updatedData = { ...projectsData[index] };
             updatedData[field] = `/images/projects/${fileName}`;
             projectsData[index] = updatedData;
-            renderProjects(); // Перерисовать, чтобы показать новый URL
+            renderProjects();
             statusMsg.innerText = 'Фото успешно загружено в GitHub!';
             statusMsg.className = "mt-4 text-center text-sm text-green-500";
           } else {
@@ -264,14 +268,15 @@
       });
 
       try {
-        // Получаем текущий SHA файла projects.json
         const getRes = await fetch(`https://api.github.com/repos/${REPO}/contents/data/projects.json?ref=${BRANCH}`, {
           headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
         });
         const getData = await getRes.json();
 
-        // Отправляем обновлённый JSON
-        const content = btoa(unescape(encodeURIComponent(JSON.stringify(projectsData, null, 2))));
+        // ИСПРАВЛЕНО: правильное кодирование UTF-8 в base64
+        const jsonString = JSON.stringify(projectsData, null, 2);
+        const content = btoa(unescape(encodeURIComponent(jsonString)));
+        
         const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/data/projects.json`, {
           method: 'PUT',
           headers: {
