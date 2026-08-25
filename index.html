@@ -13,6 +13,9 @@
     .btn-primary { background: #ff3e00; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; }
     .btn-primary:hover { background: #e03600; }
     .btn-secondary { background: #333; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; }
+    .gallery-item { position: relative; display: inline-block; margin: 5px; }
+    .gallery-item img { width: 100px; height: 100px; object-fit: cover; border-radius: 4px; }
+    .gallery-item .remove-btn { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 20px; height: 20px; border: none; cursor: pointer; font-size: 12px; }
   </style>
 </head>
 <body class="p-4 md:p-8 max-w-4xl mx-auto">
@@ -50,7 +53,6 @@
     let token = localStorage.getItem('svn_token');
     let projectsData = [];
 
-    // Инициализация
     if (token) {
       document.getElementById('login-screen').classList.add('hidden');
       document.getElementById('admin-screen').classList.remove('hidden');
@@ -81,7 +83,6 @@
         if (!res.ok) throw new Error('Не удалось загрузить projects.json');
         const data = await res.json();
         
-        // ИСПРАВЛЕНО: правильное декодирование UTF-8 из base64
         const binaryString = atob(data.content);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -105,6 +106,22 @@
       projectsData.forEach((proj, index) => {
         const div = document.createElement('div');
         div.className = 'bg-[#131519] p-6 rounded-lg border border-gray-800';
+        
+        // Рендер галереи
+        let galleryHTML = '';
+        if (proj.gallery && proj.gallery.length > 0) {
+          galleryHTML = '<div class="mt-2"><p class="text-xs text-gray-500 mb-2">Текущие фото галереи:</p><div class="flex flex-wrap">';
+          proj.gallery.forEach((img, imgIdx) => {
+            galleryHTML += `
+              <div class="gallery-item">
+                <img src="${img}" alt="Gallery ${imgIdx}">
+                <button class="remove-btn" onclick="removeGalleryImage(${index}, ${imgIdx})">×</button>
+              </div>
+            `;
+          });
+          galleryHTML += '</div></div>';
+        }
+
         div.innerHTML = `
           <div class="flex justify-between mb-4">
             <h3 class="text-xl font-bold text-white">${proj.name || 'Новый проект'}</h3>
@@ -152,10 +169,87 @@
               <input class="input-dark mb-2" data-idx="${index}" data-field="cover" value="${proj.cover || ''}">
               <input type="file" accept="image/*" onchange="handleImageUpload(this, ${index}, 'cover')" class="text-sm text-gray-400">
             </div>
+            <div class="md:col-span-2">
+              <label class="text-xs text-gray-500">Добавить фото в галерею</label>
+              <input type="file" accept="image/*" multiple onchange="handleGalleryUpload(this, ${index})" class="text-sm text-gray-400">
+              ${galleryHTML}
+            </div>
           </div>
         `;
         container.appendChild(div);
       });
+    }
+
+    function removeGalleryImage(projIdx, imgIdx) {
+      if(confirm('Удалить это фото из галереи?')) {
+        projectsData[projIdx].gallery.splice(imgIdx, 1);
+        renderProjects();
+      }
+    }
+
+    async function handleGalleryUpload(input, index) {
+      const files = input.files;
+      if (!files || files.length === 0) return;
+      
+      const statusMsg = document.getElementById('status-msg');
+      statusMsg.innerText = `Загрузка ${files.length} фото в GitHub...`;
+      statusMsg.className = "mt-4 text-center text-sm text-yellow-500";
+
+      if (!projectsData[index].gallery) {
+        projectsData[index].gallery = [];
+      }
+
+      for (let file of files) {
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+          const base64Content = e.target.result.split(',')[1];
+          const fileName = `${projectsData[index].slug || 'img'}-gallery-${Date.now()}.${file.name.split('.').pop()}`;
+          const path = `images/projects/${fileName}`;
+
+          try {
+            let sha = null;
+            try {
+              const checkRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`, {
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+              });
+              if (checkRes.ok) {
+                const checkData = await checkRes.json();
+                sha = checkData.sha;
+              }
+            } catch(e) {}
+
+            const payload = {
+              message: `Admin: upload gallery ${fileName}`,
+              content: base64Content,
+              branch: BRANCH
+            };
+            if (sha) payload.sha = sha;
+
+            const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+              projectsData[index].gallery.push(`/images/projects/${fileName}`);
+              renderProjects();
+              statusMsg.innerText = '✅ Фото загружены!';
+              statusMsg.className = "mt-4 text-center text-sm text-green-500";
+            } else {
+              throw new Error(await res.text());
+            }
+          } catch (err) {
+            statusMsg.innerText = '❌ Ошибка загрузки: ' + err.message;
+            statusMsg.className = "mt-4 text-center text-sm text-red-500";
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     }
 
     function addNewProject() {
@@ -232,13 +326,13 @@
             updatedData[field] = `/images/projects/${fileName}`;
             projectsData[index] = updatedData;
             renderProjects();
-            statusMsg.innerText = 'Фото успешно загружено в GitHub!';
+            statusMsg.innerText = '✅ Фото загружено!';
             statusMsg.className = "mt-4 text-center text-sm text-green-500";
           } else {
             throw new Error(await res.text());
           }
         } catch (err) {
-          statusMsg.innerText = 'Ошибка загрузки фото: ' + err.message;
+          statusMsg.innerText = '❌ Ошибка загрузки: ' + err.message;
           statusMsg.className = "mt-4 text-center text-sm text-red-500";
         }
       };
@@ -250,7 +344,6 @@
       statusMsg.innerText = 'Сохранение изменений в GitHub...';
       statusMsg.className = "mt-4 text-center text-sm text-yellow-500";
 
-      // Собираем данные из инпутов
       document.querySelectorAll('[data-field]').forEach(input => {
         const idx = input.dataset.idx;
         const field = input.dataset.field;
@@ -273,7 +366,6 @@
         });
         const getData = await getRes.json();
 
-        // ИСПРАВЛЕНО: правильное кодирование UTF-8 в base64
         const jsonString = JSON.stringify(projectsData, null, 2);
         const content = btoa(unescape(encodeURIComponent(jsonString)));
         
