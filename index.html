@@ -13,14 +13,14 @@
     .btn-primary { background: #ff3e00; color: white; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; }
     .btn-primary:hover { background: #e03600; }
     .btn-secondary { background: #333; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; }
-    .gallery-item { position: relative; display: inline-block; margin: 5px; }
-    .gallery-item img { width: 100px; height: 100px; object-fit: cover; border-radius: 4px; }
-    .gallery-item .remove-btn { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 20px; height: 20px; border: none; cursor: pointer; font-size: 12px; }
+    .gallery-item { position: relative; display: inline-block; margin: 5px; background: #1a1a1a; padding: 5px; border-radius: 4px; }
+    .gallery-item img { width: 100px; height: 100px; object-fit: cover; border-radius: 4px; display: block; }
+    .gallery-item .remove-btn { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 20px; height: 20px; border: none; cursor: pointer; font-size: 12px; line-height: 20px; text-align: center; }
+    .gallery-item .file-name { font-size: 10px; color: #888; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
   </style>
 </head>
 <body class="p-4 md:p-8 max-w-4xl mx-auto">
 
-  <!-- Экран входа -->
   <div id="login-screen" class="text-center mt-20">
     <h1 class="text-3xl font-bold mb-6 text-[#ff3e00]">SVN-LAB ADMIN</h1>
     <p class="mb-4 text-gray-400">Введите GitHub Personal Access Token для доступа</p>
@@ -29,7 +29,6 @@
     <button onclick="saveToken()" class="btn-primary">Войти</button>
   </div>
 
-  <!-- Экран панели -->
   <div id="admin-screen" class="hidden">
     <div class="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
       <h1 class="text-2xl font-bold text-[#ff3e00]">Управление проектами</h1>
@@ -37,7 +36,6 @@
     </div>
 
     <div id="loading" class="text-center py-10 text-gray-400">Загрузка данных из GitHub...</div>
-    
     <div id="projects-container" class="space-y-8"></div>
 
     <div class="mt-8 flex gap-4">
@@ -50,6 +48,7 @@
   <script>
     const REPO = 'se7ka-gh/svn-lab-site-qwen';
     const BRANCH = 'main';
+    const BASE_URL = 'https://se7ka-gh.github.io/svn-lab-site-qwen';
     let token = localStorage.getItem('svn_token');
     let projectsData = [];
 
@@ -66,7 +65,7 @@
         token = input;
         location.reload();
       } else {
-        alert('Неверный формат токена. Он должен начинаться с github_pat_');
+        alert('Неверный формат токена');
       }
     }
 
@@ -91,9 +90,14 @@
         const content = new TextDecoder('utf-8').decode(bytes);
         projectsData = JSON.parse(content);
         
+        console.log('Загружено проектов:', projectsData.length);
+        projectsData.forEach((p, i) => {
+          console.log(`Проект ${i}: ${p.name}, галерея:`, p.gallery);
+        });
+        
         renderProjects();
       } catch (err) {
-        document.getElementById('loading').innerText = 'Ошибка: ' + err.message + '. Проверьте токен и имя репозитория.';
+        document.getElementById('loading').innerText = 'Ошибка: ' + err.message;
         console.error(err);
       }
     }
@@ -107,20 +111,26 @@
         const div = document.createElement('div');
         div.className = 'bg-[#131519] p-6 rounded-lg border border-gray-800';
         
-        // Рендер галереи
-        let galleryHTML = '';
+        // Рендер галереи — показываем и существующие фото
+        let galleryHTML = '<div class="mt-3"><p class="text-xs text-gray-500 mb-2">Галерея (файлы):</p><div class="flex flex-wrap gap-2">';
+        
         if (proj.gallery && proj.gallery.length > 0) {
-          galleryHTML = '<div class="mt-2"><p class="text-xs text-gray-500 mb-2">Текущие фото галереи:</p><div class="flex flex-wrap">';
-          proj.gallery.forEach((img, imgIdx) => {
+          proj.gallery.forEach((imgPath, imgIdx) => {
+            // Убираем ведущий слэш для отображения
+            const fileName = imgPath.replace(/^\/+/, '');
+            const fullUrl = BASE_URL + '/' + fileName;
             galleryHTML += `
               <div class="gallery-item">
-                <img src="${img}" alt="Gallery ${imgIdx}">
+                <img src="${fullUrl}" alt="${fileName}" onerror="this.style.display=\'none\'">
+                <div class="file-name" title="${fileName}">${fileName}</div>
                 <button class="remove-btn" onclick="removeGalleryImage(${index}, ${imgIdx})">×</button>
               </div>
             `;
           });
-          galleryHTML += '</div></div>';
+        } else {
+          galleryHTML += '<p class="text-xs text-gray-600">Нет фото в галерее</p>';
         }
+        galleryHTML += '</div></div>';
 
         div.innerHTML = `
           <div class="flex justify-between mb-4">
@@ -165,13 +175,13 @@
               <input class="input-dark" data-idx="${index}" data-field="materials_str" value="${Array.isArray(proj.materials) ? proj.materials.join(', ') : ''}">
             </div>
             <div class="md:col-span-2">
-              <label class="text-xs text-gray-500">Обложка (URL или загрузить новую ниже)</label>
-              <input class="input-dark mb-2" data-idx="${index}" data-field="cover" value="${proj.cover || ''}">
-              <input type="file" accept="image/*" onchange="handleImageUpload(this, ${index}, 'cover')" class="text-sm text-gray-400">
+              <label class="text-xs text-gray-500">Обложка</label>
+              <input class="input-dark mb-2" data-idx="${index}" data-field="cover" value="${proj.cover || ''}" readonly>
+              <input type="file" accept="image/*" onchange="handleImageUpload(this, ${index}, 'cover')" class="text-sm text-gray-400 mt-1">
             </div>
             <div class="md:col-span-2">
-              <label class="text-xs text-gray-500">Добавить фото в галерею</label>
-              <input type="file" accept="image/*" multiple onchange="handleGalleryUpload(this, ${index})" class="text-sm text-gray-400">
+              <label class="text-xs text-gray-500">Загрузить фото в галерею (можно несколько сразу)</label>
+              <input type="file" accept="image/*" multiple onchange="handleGalleryUpload(this, ${index})" class="text-sm text-gray-400 mt-1">
               ${galleryHTML}
             </div>
           </div>
@@ -188,68 +198,77 @@
     }
 
     async function handleGalleryUpload(input, index) {
-      const files = input.files;
-      if (!files || files.length === 0) return;
+      const files = Array.from(input.files);
+      if (files.length === 0) return;
       
       const statusMsg = document.getElementById('status-msg');
-      statusMsg.innerText = `Загрузка ${files.length} фото в GitHub...`;
+      statusMsg.innerText = `Загрузка ${files.length} фото...`;
       statusMsg.className = "mt-4 text-center text-sm text-yellow-500";
 
       if (!projectsData[index].gallery) {
         projectsData[index].gallery = [];
       }
 
-      for (let file of files) {
-        const reader = new FileReader();
-        reader.onload = async function(e) {
-          const base64Content = e.target.result.split(',')[1];
-          const fileName = `${projectsData[index].slug || 'img'}-gallery-${Date.now()}.${file.name.split('.').pop()}`;
-          const path = `images/projects/${fileName}`;
-
-          try {
-            let sha = null;
+      // Загружаем файлы последовательно
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        statusMsg.innerText = `Загрузка ${i + 1} из ${files.length}: ${file.name}...`;
+        
+        await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = async function(e) {
             try {
-              const checkRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`, {
-                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+              const base64Content = e.target.result.split(',')[1];
+              const fileName = `${projectsData[index].slug || 'img'}-gal-${Date.now()}-${i}.${file.name.split('.').pop()}`;
+              const path = `images/projects/${fileName}`;
+
+              let sha = null;
+              try {
+                const checkRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`, {
+                  headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+                });
+                if (checkRes.ok) {
+                  const checkData = await checkRes.json();
+                  sha = checkData.sha;
+                }
+              } catch(e) {}
+
+              const payload = {
+                message: `Admin: gallery upload ${fileName}`,
+                content: base64Content,
+                branch: BRANCH
+              };
+              if (sha) payload.sha = sha;
+
+              const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+                method: 'PUT',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
               });
-              if (checkRes.ok) {
-                const checkData = await checkRes.json();
-                sha = checkData.sha;
+
+              if (res.ok) {
+                projectsData[index].gallery.push(`/images/projects/${fileName}`);
+                resolve();
+              } else {
+                reject(new Error(await res.text()));
               }
-            } catch(e) {}
-
-            const payload = {
-              message: `Admin: upload gallery ${fileName}`,
-              content: base64Content,
-              branch: BRANCH
-            };
-            if (sha) payload.sha = sha;
-
-            const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Accept': 'application/vnd.github.v3+json',
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(payload)
-            });
-
-            if (res.ok) {
-              projectsData[index].gallery.push(`/images/projects/${fileName}`);
-              renderProjects();
-              statusMsg.innerText = '✅ Фото загружены!';
-              statusMsg.className = "mt-4 text-center text-sm text-green-500";
-            } else {
-              throw new Error(await res.text());
+            } catch (err) {
+              reject(err);
             }
-          } catch (err) {
-            statusMsg.innerText = '❌ Ошибка загрузки: ' + err.message;
-            statusMsg.className = "mt-4 text-center text-sm text-red-500";
-          }
-        };
-        reader.readAsDataURL(file);
+          };
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
       }
+
+      statusMsg.innerText = `✅ Загружено ${files.length} фото!`;
+      statusMsg.className = "mt-4 text-center text-sm text-green-500";
+      renderProjects();
+      input.value = ''; // очистка input
     }
 
     function addNewProject() {
@@ -272,7 +291,7 @@
     }
 
     function removeProject(index) {
-      if(confirm('Удалить этот проект?')) {
+      if(confirm('Удалить проект?')) {
         projectsData.splice(index, 1);
         renderProjects();
       }
@@ -283,16 +302,16 @@
       if (!file) return;
       
       const statusMsg = document.getElementById('status-msg');
-      statusMsg.innerText = `Загрузка ${file.name} в GitHub...`;
+      statusMsg.innerText = `Загрузка обложки...`;
       statusMsg.className = "mt-4 text-center text-sm text-yellow-500";
 
       const reader = new FileReader();
       reader.onload = async function(e) {
-        const base64Content = e.target.result.split(',')[1];
-        const fileName = `${projectsData[index].slug || 'img'}-${Date.now()}.${file.name.split('.').pop()}`;
-        const path = `images/projects/${fileName}`;
-
         try {
+          const base64Content = e.target.result.split(',')[1];
+          const fileName = `${projectsData[index].slug || 'cover'}-${Date.now()}.${file.name.split('.').pop()}`;
+          const path = `images/projects/${fileName}`;
+
           let sha = null;
           try {
             const checkRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`, {
@@ -305,7 +324,7 @@
           } catch(e) {}
 
           const payload = {
-            message: `Admin: upload ${fileName}`,
+            message: `Admin: cover upload ${fileName}`,
             content: base64Content,
             branch: BRANCH
           };
@@ -322,17 +341,15 @@
           });
 
           if (res.ok) {
-            const updatedData = { ...projectsData[index] };
-            updatedData[field] = `/images/projects/${fileName}`;
-            projectsData[index] = updatedData;
-            renderProjects();
-            statusMsg.innerText = '✅ Фото загружено!';
+            projectsData[index][field] = `/images/projects/${fileName}`;
+            statusMsg.innerText = '✅ Обложка загружена!';
             statusMsg.className = "mt-4 text-center text-sm text-green-500";
+            renderProjects();
           } else {
             throw new Error(await res.text());
           }
         } catch (err) {
-          statusMsg.innerText = '❌ Ошибка загрузки: ' + err.message;
+          statusMsg.innerText = '❌ Ошибка: ' + err.message;
           statusMsg.className = "mt-4 text-center text-sm text-red-500";
         }
       };
@@ -341,11 +358,11 @@
 
     async function saveAllChanges() {
       const statusMsg = document.getElementById('status-msg');
-      statusMsg.innerText = 'Сохранение изменений в GitHub...';
+      statusMsg.innerText = 'Сохранение изменений...';
       statusMsg.className = "mt-4 text-center text-sm text-yellow-500";
 
       document.querySelectorAll('[data-field]').forEach(input => {
-        const idx = input.dataset.idx;
+        const idx = parseInt(input.dataset.idx);
         const field = input.dataset.field;
         let val = input.value;
 
@@ -355,7 +372,7 @@
         
         if (field === 'materials_str') {
           projectsData[idx].materials = val.split(',').map(s => s.trim()).filter(s => s);
-        } else {
+        } else if (field !== 'materials_str') {
           projectsData[idx][field] = val;
         }
       });
@@ -377,7 +394,7 @@
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            message: 'Admin panel: update projects data',
+            message: 'Admin panel: update projects',
             content: content,
             sha: getData.sha,
             branch: BRANCH
@@ -385,13 +402,13 @@
         });
 
         if (putRes.ok) {
-          statusMsg.innerText = '✅ Успешно сохранено! Сайт обновится через 1-2 минуты.';
+          statusMsg.innerText = '✅ Сохранено! Сайт обновится через 1-2 мин.';
           statusMsg.className = "mt-4 text-center text-sm text-green-500 font-bold";
         } else {
           throw new Error(await putRes.text());
         }
       } catch (err) {
-        statusMsg.innerText = '❌ Ошибка сохранения: ' + err.message;
+        statusMsg.innerText = '❌ Ошибка: ' + err.message;
         statusMsg.className = "mt-4 text-center text-sm text-red-500";
       }
     }
